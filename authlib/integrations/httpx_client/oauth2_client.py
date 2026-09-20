@@ -11,7 +11,11 @@ from httpx import Response
 from authlib.common.urls import url_decode
 from authlib.oauth2.auth import ClientAuth
 from authlib.oauth2.auth import TokenAuth
+from authlib.oauth2.client import DEFAULT_HEADERS
 from authlib.oauth2.client import OAuth2Client as _OAuth2Client
+from authlib.oauth2.rfc6749.parameters import prepare_token_request
+from authlib.oauth2.rfc8693 import ACCESS_TOKEN_TYPE
+from authlib.oauth2.rfc8693 import GRANT_TYPE as TOKEN_EXCHANGE_GRANT_TYPE
 
 from ..base_client import InvalidTokenError
 from ..base_client import MissingTokenError
@@ -26,6 +30,36 @@ __all__ = [
     "AsyncOAuth2Client",
     "OAuth2Client",
 ]
+
+
+def _prepare_token_exchange_body(
+    subject_token,
+    subject_token_type,
+    actor_token=None,
+    actor_token_type=None,
+    scope=None,
+    audience=None,
+    resource=None,
+    requested_token_type=None,
+    body="",
+):
+    """Assemble the token exchange request body per RFC 8693 Section 2.1."""
+    params = {
+        "subject_token": subject_token,
+        "subject_token_type": subject_token_type,
+    }
+    if actor_token:
+        params["actor_token"] = actor_token
+        params["actor_token_type"] = actor_token_type or ACCESS_TOKEN_TYPE
+    if scope:
+        params["scope"] = scope
+    if audience:
+        params["audience"] = audience
+    if resource:
+        params["resource"] = resource
+    if requested_token_type:
+        params["requested_token_type"] = requested_token_type
+    return prepare_token_request(TOKEN_EXCHANGE_GRANT_TYPE, body, **params)
 
 
 class OAuth2Auth(Auth, TokenAuth):
@@ -207,6 +241,81 @@ class AsyncOAuth2Client(_OAuth2Client, httpx.AsyncClient):
             url, data=dict(url_decode(body)), headers=headers, auth=auth, **kwargs
         )
 
+    async def exchange_token(
+        self,
+        url=None,
+        subject_token=None,
+        subject_token_type=ACCESS_TOKEN_TYPE,
+        actor_token=None,
+        actor_token_type=None,
+        scope=None,
+        audience=None,
+        resource=None,
+        requested_token_type=None,
+        auth=None,
+        headers=None,
+        **kwargs,
+    ):
+        """Exchange a security token for a new access token via the
+        OAuth 2.0 Token Exchange grant defined by RFC 8693.
+
+        :param url: Token endpoint URL, defaults to the configured
+            ``token_endpoint`` metadata.
+        :param subject_token: The security token to exchange.
+        :param subject_token_type: Identifier of the subject token type,
+            defaults to ``urn:ietf:params:oauth:token-type:access_token``.
+        :param actor_token: Optional actor token. Omit it for impersonation,
+            provide it for delegation.
+        :param actor_token_type: Identifier of the actor token type.
+        :param scope: Optional requested scope for the issued token.
+        :param audience: Optional logical name of the target service.
+        :param resource: Optional URI of the target service.
+        :param requested_token_type: Optional identifier of the requested
+            token type.
+        :param auth: Optional auth for the token endpoint request.
+        :param headers: Optional extra headers for the request.
+        :return: A :class:`OAuth2Token` object (a dict too).
+        """
+        if not subject_token:
+            raise MissingTokenError(
+                description="Missing 'subject_token' for token exchange."
+            )
+
+        if url is None:
+            url = self.metadata.get("token_endpoint")
+
+        if scope is None:
+            scope = self.scope
+
+        body = _prepare_token_exchange_body(
+            subject_token,
+            subject_token_type,
+            actor_token=actor_token,
+            actor_token_type=actor_token_type,
+            scope=scope,
+            audience=audience,
+            resource=resource,
+            requested_token_type=requested_token_type,
+        )
+
+        if auth is None:
+            auth = self.client_auth(self.token_endpoint_auth_method)
+
+        if headers is None:
+            headers = DEFAULT_HEADERS.copy()
+
+        session_kwargs = self._extract_session_request_params(kwargs)
+        resp = await self.request(
+            "POST",
+            url,
+            data=dict(url_decode(body)),
+            headers=headers,
+            auth=auth,
+            withhold_token=True,
+            **session_kwargs,
+        )
+        return self.parse_response_token(resp)
+
 
 class OAuth2Client(_OAuth2Client, httpx.Client):
     SESSION_REQUEST_PARAMS = HTTPX_CLIENT_KWARGS
@@ -283,3 +392,78 @@ class OAuth2Client(_OAuth2Client, httpx.Client):
             auth = self.token_auth
 
         return super().stream(method, url, auth=auth, **kwargs)
+
+    def exchange_token(
+        self,
+        url=None,
+        subject_token=None,
+        subject_token_type=ACCESS_TOKEN_TYPE,
+        actor_token=None,
+        actor_token_type=None,
+        scope=None,
+        audience=None,
+        resource=None,
+        requested_token_type=None,
+        auth=None,
+        headers=None,
+        **kwargs,
+    ):
+        """Exchange a security token for a new access token via the
+        OAuth 2.0 Token Exchange grant defined by RFC 8693.
+
+        :param url: Token endpoint URL, defaults to the configured
+            ``token_endpoint`` metadata.
+        :param subject_token: The security token to exchange.
+        :param subject_token_type: Identifier of the subject token type,
+            defaults to ``urn:ietf:params:oauth:token-type:access_token``.
+        :param actor_token: Optional actor token. Omit it for impersonation,
+            provide it for delegation.
+        :param actor_token_type: Identifier of the actor token type.
+        :param scope: Optional requested scope for the issued token.
+        :param audience: Optional logical name of the target service.
+        :param resource: Optional URI of the target service.
+        :param requested_token_type: Optional identifier of the requested
+            token type.
+        :param auth: Optional auth for the token endpoint request.
+        :param headers: Optional extra headers for the request.
+        :return: A :class:`OAuth2Token` object (a dict too).
+        """
+        if not subject_token:
+            raise MissingTokenError(
+                description="Missing 'subject_token' for token exchange."
+            )
+
+        if url is None:
+            url = self.metadata.get("token_endpoint")
+
+        if scope is None:
+            scope = self.scope
+
+        body = _prepare_token_exchange_body(
+            subject_token,
+            subject_token_type,
+            actor_token=actor_token,
+            actor_token_type=actor_token_type,
+            scope=scope,
+            audience=audience,
+            resource=resource,
+            requested_token_type=requested_token_type,
+        )
+
+        if auth is None:
+            auth = self.client_auth(self.token_endpoint_auth_method)
+
+        if headers is None:
+            headers = DEFAULT_HEADERS.copy()
+
+        session_kwargs = self._extract_session_request_params(kwargs)
+        resp = self.request(
+            "POST",
+            url,
+            data=dict(url_decode(body)),
+            headers=headers,
+            auth=auth,
+            withhold_token=True,
+            **session_kwargs,
+        )
+        return self.parse_response_token(resp)
