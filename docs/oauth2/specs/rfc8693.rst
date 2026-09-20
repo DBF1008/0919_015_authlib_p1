@@ -1,0 +1,69 @@
+.. _specs/rfc8693:
+
+RFC8693: OAuth 2.0 Token Exchange
+=================================
+
+.. meta::
+    :description: Python API references on RFC8693 TokenExchangeGrant
+        with Authlib implementation.
+
+.. module:: authlib.oauth2.rfc8693
+
+This section contains the generic implementation of RFC8693_ OAuth 2.0
+Token Exchange. A client exchanges a ``subject_token`` (and optionally an
+``actor_token``) for a new access token at the token endpoint.
+
+When no ``actor_token`` is present, the exchange is an **impersonation**:
+the issued token represents the subject. When an ``actor_token`` is
+present, the exchange is a **delegation**, and the granted scope is
+narrowed to the intersection of the subject and actor token scopes.
+
+Token Exchange Grant
+--------------------
+
+To integrate with Authlib :ref:`flask_oauth2_server` or
+:ref:`django_oauth2_server`, developers MUST implement the missing
+methods of :class:`TokenExchangeGrant`::
+
+    from authlib.oauth2.rfc8693 import TokenExchangeGrant
+
+    class MyTokenExchangeGrant(TokenExchangeGrant):
+        def resolve_subject_token(self, token, token_type):
+            item = Token.query.filter_by(access_token=token).first()
+            if item and not item.is_expired():
+                return {"user": item.user, "scope": item.scope}
+
+        def resolve_actor_token(self, token, token_type):
+            item = Token.query.filter_by(access_token=token).first()
+            if item and not item.is_expired():
+                return {"user": item.user, "scope": item.scope}
+
+Register the grant with the authorization server::
+
+    authorization_server.register_token_exchange_grant(MyTokenExchangeGrant)
+
+The grant supports the ``urn:ietf:params:oauth:token-type:access_token``
+and ``urn:ietf:params:oauth:token-type:jwt`` token types.
+
+Resource Server
+---------------
+
+Tokens issued by the token exchange grant are ordinary bearer tokens.
+Use :class:`TokenExchangeBearerTokenValidator` to plug them into the
+RFC6750 validation chain of the resource server, exactly like
+:class:`~authlib.oauth2.rfc6750.BearerTokenValidator`.
+
+Client
+------
+
+The httpx ``OAuth2Client`` and ``AsyncOAuth2Client`` provide an
+``exchange_token`` method::
+
+    token = client.exchange_token(
+        "https://as.example.com/token",
+        subject_token="eyJhbGciOiJFUzI1NiIs...",
+        subject_token_type="urn:ietf:params:oauth:token-type:jwt",
+        scope="profile",
+    )
+
+.. _RFC8693: https://tools.ietf.org/html/rfc8693

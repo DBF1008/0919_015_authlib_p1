@@ -216,6 +216,33 @@ class AuthorizationServer(Hookable):
         if hasattr(grant_cls, "check_token_endpoint"):
             self._token_grants.append((grant_cls, extensions))
 
+    def register_token_exchange_grant(self, grant_cls=None, extensions=None):
+        """Register the OAuth 2.0 Token Exchange grant defined in
+        `RFC 8693`_. Developers MUST subclass
+        :class:`~authlib.oauth2.rfc8693.TokenExchangeGrant` to implement
+        ``resolve_subject_token`` and ``resolve_actor_token``::
+
+            class MyTokenExchangeGrant(TokenExchangeGrant):
+                def resolve_subject_token(self, token, token_type):
+                    ...
+
+                def resolve_actor_token(self, token, token_type):
+                    ...
+
+            authorization_server.register_token_exchange_grant(MyTokenExchangeGrant)
+
+        :param grant_cls: a subclass of ``TokenExchangeGrant``. If omitted,
+            the base ``TokenExchangeGrant`` is registered.
+        :param extensions: extensions for the grant class.
+
+        .. _`RFC 8693`: https://tools.ietf.org/html/rfc8693
+        """
+        from ..rfc8693 import TokenExchangeGrant
+
+        if grant_cls is None:
+            grant_cls = TokenExchangeGrant
+        self.register_grant(grant_cls, extensions)
+
     def register_endpoint(self, endpoint: type[Endpoint] | Endpoint):
         """Add extra endpoint to authorization server. e.g.
         RevocationEndpoint::

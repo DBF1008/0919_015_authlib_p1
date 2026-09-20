@@ -14,6 +14,7 @@ Specifications
     rfc7662
     rfc8414
     rfc8628
+    rfc8693
     rfc9068
     rfc9101
     rfc9207
